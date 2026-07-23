@@ -28,10 +28,14 @@ pub fn content_size(game: &NumberlinkGame, cell_size: f32) -> Vec2 {
 
 /// An egui widget that renders an interactive Numberlink board.
 ///
-/// Press and drag from a number's endpoint (or an already-drawn cell of its
-/// path) to draw/redraw that number's path towards the other endpoint.
-/// Dragging back over the path's own previous cell retracts it by one;
-/// dragging onto a different number's path is rejected.
+/// Press and drag from either of a number's two endpoints (both are always
+/// live, symmetrically — grabbing one always starts fresh from there, even
+/// if the path was originally drawn from the other end) to draw/redraw its
+/// path. Grabbing an interior cell of an already-drawn path instead
+/// truncates it to that point. Dragging back over the path's own previous
+/// cell retracts it by one; dragging onto a different number's path is
+/// rejected. A plain click (no drag) on an endpoint or path cell clears/
+/// starts the path immediately, without needing to drag at all.
 ///
 /// ```ignore
 /// ui.add(egui_numberlink::NumberlinkWidget::new(&mut game));
@@ -168,7 +172,22 @@ impl Widget for NumberlinkWidget<'_> {
         // started on, and stashed in egui's per-widget temp memory so every
         // subsequent frame of the same gesture keeps extending it.
         let drag_id = response.id.with("numberlink_drag_number");
-        if response.drag_started() {
+        if response.clicked() {
+            // A stationary press+release never fires `drag_started()` (egui
+            // only calls it once the pointer clears a small motion
+            // threshold), so a plain click needs its own branch — otherwise
+            // clicking an endpoint/path cell to clear or restart it would
+            // silently do nothing. There's no later `drag_stopped()` for a
+            // click, so finish the gesture (`end_drag`) immediately instead
+            // of stashing anything in temp memory.
+            if let Some(cell) = response.interact_pointer_pos().and_then(cell_at) {
+                if let Some(number) = game.number_at(cell) {
+                    if game.start_drag(number, cell) {
+                        game.end_drag(number);
+                    }
+                }
+            }
+        } else if response.drag_started() {
             if let Some(cell) = response.interact_pointer_pos().and_then(cell_at) {
                 if let Some(number) = game.number_at(cell) {
                     if game.start_drag(number, cell) {

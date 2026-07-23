@@ -149,23 +149,33 @@ impl NumberlinkGame {
     /// (typically decided by [`Self::number_at`]); returns `false` and does
     /// nothing otherwise.
     ///
-    /// Restarting an in-progress or completed path (grabbing it anywhere,
-    /// not just at its original starting endpoint) clears it back to just
-    /// its original start cell, ready to be redrawn via [`Self::drag_to`].
+    /// Both endpoints are always "live": pressing either one clears the
+    /// path and starts fresh anchored at *that* cell, even if the path was
+    /// originally drawn starting from the other end (a number's two ends
+    /// are symmetric, not a fixed direction). Pressing an interior cell of
+    /// the current path instead truncates it to the prefix ending there,
+    /// keeping whichever end it was drawn from — the standard "grab a
+    /// point along the pipe to redraw the tail" gesture.
     pub fn start_drag(&mut self, number: usize, cell: (usize, usize)) -> bool {
         let (a, b) = self.endpoints[number];
-        let on_own_path = self.paths[number].contains(&cell);
-        if cell != a && cell != b && !on_own_path {
-            return false;
+        if cell == a || cell == b {
+            self.pending_undo = Some(self.paths.clone());
+            let old_path = std::mem::take(&mut self.paths[number]);
+            for c in old_path {
+                self.set_owner(c, None);
+            }
+            self.paths[number].push(cell);
+            self.set_owner(cell, Some(number));
+            return true;
         }
+        let Some(index) = self.paths[number].iter().position(|&c| c == cell) else {
+            return false;
+        };
         self.pending_undo = Some(self.paths.clone());
-        let anchor = self.paths[number].first().copied().unwrap_or(cell);
-        let old_path = std::mem::take(&mut self.paths[number]);
-        for c in old_path {
+        let removed: Vec<_> = self.paths[number].split_off(index + 1);
+        for c in removed {
             self.set_owner(c, None);
         }
-        self.paths[number].push(anchor);
-        self.set_owner(anchor, Some(number));
         true
     }
 
@@ -376,17 +386,33 @@ mod tests {
     }
 
     #[test]
-    fn restarting_a_drag_anywhere_on_the_path_resets_to_its_start() {
+    fn grabbing_an_interior_cell_truncates_the_path_there() {
         let mut game = NumberlinkGame::from_endpoints(4, 1, vec![((0, 0), (3, 0))]);
         game.start_drag(0, (0, 0));
         game.drag_to(0, (1, 0));
         game.drag_to(0, (2, 0));
         game.end_drag(0);
 
-        // Grabbing the far endpoint restarts from the original start, not
-        // from (3, 0) itself.
-        assert!(game.start_drag(0, (2, 0)));
-        assert_eq!(game.path_cells(0), &[(0, 0)]);
+        // Grabbing an interior cell keeps the prefix up to it and frees the
+        // rest, rather than wiping the whole path.
+        assert!(game.start_drag(0, (1, 0)));
+        assert_eq!(game.path_cells(0), &[(0, 0), (1, 0)]);
+        assert_eq!(game.owner_at((2, 0)), None);
+    }
+
+    #[test]
+    fn grabbing_the_far_endpoint_starts_fresh_from_there() {
+        let mut game = NumberlinkGame::from_endpoints(4, 1, vec![((0, 0), (3, 0))]);
+        game.start_drag(0, (0, 0));
+        game.drag_to(0, (1, 0));
+        game.drag_to(0, (2, 0));
+        game.end_drag(0);
+
+        // Both endpoints are symmetric: grabbing the *other* one starts a
+        // fresh path anchored there, not at the original (0, 0) start.
+        assert!(game.start_drag(0, (3, 0)));
+        assert_eq!(game.path_cells(0), &[(3, 0)]);
+        assert_eq!(game.owner_at((0, 0)), None);
         assert_eq!(game.owner_at((1, 0)), None);
         assert_eq!(game.owner_at((2, 0)), None);
     }

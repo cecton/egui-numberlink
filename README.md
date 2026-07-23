@@ -24,7 +24,7 @@ path.
 - Endpoints are always labeled with numbers, like the original Numberlink — color is an optional, fully customizable skin on top, not a replacement
 - `NumberlinkWidget::colors` lets embedding apps supply their own per-number palette; defaults to a colorblind-safe built-in one
 - Paths are drawn through the interior of each cell (connecting cell centers, turning at a cell's center), never along a cell's border
-- Click-and-drag drawing: dragging back over a path's own previous cell retracts it by one; dragging onto a different number's path is rejected
+- Click-and-drag drawing: either endpoint always works to start/redraw a number's path; dragging back over a path's own previous cell retracts it by one; dragging onto a different number's path is rejected; a plain click (no drag needed) also clears/starts a path
 - Undo/redo history, one entry per completed drag
 - Win banner drawn over the board once solved
 
