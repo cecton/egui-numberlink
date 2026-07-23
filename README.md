@@ -20,7 +20,7 @@ path.
 
 - Pure game logic struct (`NumberlinkGame`) with no egui dependency — usable headlessly or with any renderer
 - Ready-to-use egui `Widget` (`NumberlinkWidget`) that renders an interactive, numbered board
-- Two ways to build a puzzle: `NumberlinkGame::from_endpoints` (supply your own endpoints) and `NumberlinkGame::random` (procedural, seeded, verified to have a unique full-board solution)
+- Two ways to build a puzzle: `NumberlinkGame::from_endpoints` (supply your own endpoints) and `NumberlinkGame::random` (procedural, seeded, always has a full-board solution by construction and prefers one verified unique within a bounded search)
 - Endpoints are always labeled with numbers, like the original Numberlink — color is an optional, fully customizable skin on top, not a replacement
 - `NumberlinkWidget::colors` lets embedding apps supply their own per-number palette; defaults to a colorblind-safe built-in one
 - Paths are drawn through the interior of each cell (connecting cell centers, turning at a cell's center), never along a cell's border

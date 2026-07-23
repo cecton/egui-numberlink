@@ -25,10 +25,15 @@ project only ever refers to the genre by its generic name, Numberlink.
   headlessly (e.g. for tests or a non-egui renderer) without pulling in any
   painting code.
 - `src/generator.rs` — puzzle generation (`pub(crate)` only, not part of the
-  public API): a random Hamiltonian path over the board, cut into numbered
-  segments, verified unique via a bounded backtracking solver. Internal
-  detail of `NumberlinkGame::random`; keep it that way unless there's a
-  concrete need for lower-level access.
+  public API): a random Hamiltonian path over the board (Warnsdorff's rule
+  ordering, see `ranked_neighbors` — plain randomized order doesn't scale
+  much past 4x4), cut into numbered segments, with a bounded backtracking
+  solver (connectivity-pruned, see `Solver::is_feasible`) that *prefers* a
+  layout verified unique but falls back to the first constructively-valid
+  one if none turns up within budget (see the module's doc comment for why
+  global uniqueness isn't chased at all costs here). Internal detail of
+  `NumberlinkGame::random`; keep it that way unless there's a concrete need
+  for lower-level access.
 - `src/widget.rs` — `NumberlinkWidget`, `DEFAULT_COLORS`, `content_size`, and
   all painting/input handling. This is the only file allowed to depend on
   `egui::Ui`/`Painter`.
@@ -79,12 +84,14 @@ cargo clippy --target wasm32-unknown-unknown --example webapp -- -D warnings
   simply redrawing a number's path (grabbing it anywhere resets it back to
   its original starting cell, see `NumberlinkGame::start_drag`'s doc
   comment).
-- `NumberlinkGame::random`'s generated puzzles must always have a verified
-  unique, full-board solution (see `generator.rs`'s solver) — the win
+- `NumberlinkGame::random`'s generated puzzles must always have *at least
+  one* full-board solution by construction, and prefer (without insisting
+  on, see `generator.rs`'s module docs) one verified unique — the win
   condition (`check_win` in `game.rs`) checks both "every pair connected" and
   "every cell filled" together, and that's intentional: dropping either half
   would make some generated puzzles winnable by a proper subset of cells,
-  contradicting what the generator actually verified.
+  which isn't the intended solution regardless of whether it was the only
+  one.
 - `NumberlinkGame::from_endpoints` (curated puzzles) has no such solvability
   guarantee — that's documented as being on the caller.
 - Add unit tests in `src/game.rs` for player-facing behavior (drag/retract/

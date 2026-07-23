@@ -214,7 +214,17 @@ impl NumberlinkGame {
         let Some(before) = self.pending_undo.take() else {
             return;
         };
-        if before[number] != self.paths[number] {
+        // A path of length <= 1 (just the anchor `start_drag` always seeds,
+        // with nothing successfully extended onto it) renders and plays
+        // identically to an empty one — no pipe is drawn either way, and
+        // the player can pick it back up from the same starting point next
+        // time. Treat the two as equal so a drag that starts and
+        // immediately fails to extend (e.g. every target rejected) doesn't
+        // push a no-op-looking entry onto the undo stack.
+        fn normalized(p: &[(usize, usize)]) -> Option<&[(usize, usize)]> {
+            (p.len() > 1).then_some(p)
+        }
+        if normalized(&before[number]) != normalized(&self.paths[number]) {
             self.undo_stack.push(before);
             self.redo_stack.clear();
         }
@@ -336,6 +346,33 @@ mod tests {
         game.start_drag(1, (0, 1));
         game.drag_to(1, (1, 0)); // belongs to number 0, must be rejected
         assert_eq!(game.path_cells(1), &[(0, 1)]);
+    }
+
+    #[test]
+    fn a_drag_that_never_extends_does_not_push_a_no_op_undo_entry() {
+        // Regression test: `start_drag` always seeds the path with the
+        // anchor cell, so a drag that starts and then has every extension
+        // rejected still left a 1-cell "path" (renders/plays identically to
+        // untouched) that used to still count as "changed" and push a
+        // spurious entry onto the undo stack.
+        let mut game = small_game();
+        game.start_drag(0, (0, 0));
+        game.drag_to(0, (1, 0));
+        game.end_drag(0);
+        assert!(game.can_undo());
+
+        game.start_drag(1, (0, 1));
+        game.drag_to(1, (1, 0)); // belongs to number 0, rejected
+        game.end_drag(1);
+        // `start_drag` always seeds the anchor cell; a 1-cell path is the
+        // expected result of a drag that never successfully extended.
+        assert_eq!(game.path_cells(1), &[(0, 1)]);
+
+        game.undo();
+        // The one real move (number 0's connection) must be what gets
+        // undone, not an invisible no-op from the rejected number-1 drag.
+        assert!(game.path_cells(0).is_empty());
+        assert!(!game.can_undo());
     }
 
     #[test]

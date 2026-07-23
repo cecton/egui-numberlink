@@ -43,3 +43,11 @@ web-sys = { version = "0.3", features = [
     "MediaQueryList",
     "Window",
 ] }
+
+# The Hamiltonian-path/uniqueness-solver generator in `generator.rs` is
+# measurably slower unoptimized (a plain debug build makes `cargo test`
+# noticeably sluggish on larger boards); a modest bump keeps local
+# iteration and CI fast without giving up debug-friendly incremental
+# compiles the way a full `opt-level = 3` would.
+[profile.dev]
+opt-level = 2

@@ -12,7 +12,7 @@ Versioning](semver).
 - Initial release of `egui-numberlink`
 - `NumberlinkGame` core game logic API (renderer-agnostic)
 - `NumberlinkGame::from_endpoints` to build a puzzle from explicit endpoint pairs
-- `NumberlinkGame::random` to build a seeded procedural puzzle, verified via a backtracking solver to have exactly one full-board, non-crossing solution
+- `NumberlinkGame::random` to build a seeded procedural puzzle: always a full-board, non-crossing solution by construction, preferring (via a connectivity-pruned backtracking solver, within a bounded search) one verified unique
 - `NumberlinkWidget` egui widget for interactive board rendering, paths drawn through cell interiors (never along cell borders)
 - Click-and-drag drawing with retraction (dragging back over a path's own previous cell shrinks it) and rejection of crossing into another number's path
 - `NumberlinkWidget::colors` to customize the per-number palette (defaults to a colorblind-safe built-in one); numbers are always shown on endpoints regardless of color, per the original Numberlink
