@@ -54,6 +54,7 @@ fn run() {
         mobile_mode: MobileMode,
         scene_rect: Option<egui::Rect>,
         show_menu: bool,
+        touch_device: bool,
     }
 
     impl eframe::App for NumberlinkApp {
@@ -62,17 +63,17 @@ fn run() {
             ui.painter()
                 .rect_filled(bg, egui::CornerRadius::ZERO, ui.visuals().panel_fill);
 
-            let is_mobile = Self::is_mobile(ui);
+            let is_mobile = self.is_mobile(ui);
 
             self.show_top_bar(ui, is_mobile);
 
             if is_mobile {
                 self.mobile_ui(ui);
+                self.show_menu_modal(ui.ctx());
             } else {
                 self.desktop_ui(ui);
+                self.show_menu = false;
             }
-
-            self.show_menu_modal(ui.ctx());
         }
 
         fn save(&mut self, storage: &mut dyn eframe::Storage) {
@@ -82,6 +83,7 @@ fn run() {
 
     impl NumberlinkApp {
         const MOBILE_CELL_SIZE: f32 = 40.0;
+        const ACTION_BUTTON_SIZE: egui::Vec2 = egui::vec2(48.0, 48.0);
 
         fn new_game(&mut self, preset: Preset) {
             self.selected_preset = preset;
@@ -89,6 +91,12 @@ fn run() {
             self.seed_counter += 1;
             self.game = NumberlinkGame::random(w, h, pairs, self.seed_counter);
             self.scene_rect = None;
+            self.mobile_mode = MobileMode::Draw;
+        }
+
+        fn start_new_game(&mut self) {
+            let preset = self.selected_preset;
+            self.new_game(preset);
         }
 
         fn new(cc: &eframe::CreationContext<'_>) -> Self {
@@ -99,6 +107,11 @@ fn run() {
             let (w, h, pairs) = selected_preset.dims();
             let initial_seed = fastrand::u64(..);
 
+            let touch_device = web_sys::window()
+                .and_then(|w| w.match_media("(pointer: coarse)").ok())
+                .flatten()
+                .is_some_and(|mql| mql.matches());
+
             Self {
                 game: NumberlinkGame::random(w, h, pairs, initial_seed),
                 selected_preset,
@@ -106,20 +119,19 @@ fn run() {
                 mobile_mode: MobileMode::Draw,
                 scene_rect: None,
                 show_menu: false,
+                touch_device,
             }
         }
 
         /// Narrow viewport or a coarse (touch) pointer: switches the app to
         /// the panning, toolbar-driven mobile layout instead of the
-        /// fills-the-window desktop one.
-        fn is_mobile(ui: &egui::Ui) -> bool {
+        /// fills-the-window desktop one. Pointer coarseness is queried once
+        /// at startup (a wasm/JS FFI call) and cached, since it can't
+        /// realistically change mid-session and re-checking it every frame
+        /// would be wasted work.
+        fn is_mobile(&self, ui: &egui::Ui) -> bool {
             let content = ui.ctx().content_rect();
-            let width_small = content.width() < 900.0;
-            let touch_device = web_sys::window()
-                .and_then(|w| w.match_media("(pointer: coarse)").ok())
-                .flatten()
-                .is_some_and(|mql| mql.matches());
-            width_small || touch_device
+            content.width() < 900.0 || self.touch_device
         }
 
         fn show_top_bar(&mut self, ui: &mut egui::Ui, is_mobile: bool) {
@@ -163,8 +175,7 @@ fn run() {
                         }
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui.button("\u{1F504} New Game").clicked() {
-                                let preset = self.selected_preset;
-                                self.new_game(preset);
+                                self.start_new_game();
                             }
                         });
                     });
@@ -181,6 +192,7 @@ fn run() {
             ui.spacing_mut().interact_size.y = 48.0;
 
             self.show_action_bar(ui);
+            let content_area = ui.available_rect_before_wrap();
 
             let board_footprint = content_size(&self.game, Self::MOBILE_CELL_SIZE);
             let mut scene_rect = self
@@ -211,6 +223,21 @@ fn run() {
             }
 
             self.scene_rect = Some(scene_rect);
+
+            if self.game.status == GameStatus::Won {
+                egui::Area::new(egui::Id::new("mobile_new_game_overlay"))
+                    .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 40.0))
+                    .constrain_to(content_area)
+                    .order(egui::Order::Foreground)
+                    .show(ui.ctx(), |ui| {
+                        let button =
+                            egui::Button::new(egui::RichText::new("\u{1F504} New Game").size(20.0))
+                                .min_size(egui::vec2(180.0, 48.0));
+                        if ui.add(button).clicked() {
+                            self.start_new_game();
+                        }
+                    });
+            }
         }
 
         /// Renders `add_contents` at `scene_rect`'s pan/zoom transform
@@ -227,6 +254,15 @@ fn run() {
         ) {
             let (outer_rect, _) =
                 ui.allocate_exact_size(ui.available_size_before_wrap(), egui::Sense::hover());
+
+            // Mirrors `Scene::show`'s own self-healing: a degenerate
+            // `scene_rect` (e.g. non-finite or zero-size) would otherwise
+            // send `scale` to NaN/inf with no recovery until `new_game()`.
+            let scene_rect = if scene_rect.is_finite() && scene_rect.size() != egui::Vec2::ZERO {
+                scene_rect
+            } else {
+                egui::Rect::from_min_size(egui::Pos2::ZERO, max_inner_size)
+            };
 
             let scale = zoom_range.clamp((outer_rect.size() / scene_rect.size()).min_elem());
             let to_global = egui::emath::TSTransform::from_translation(
@@ -265,7 +301,7 @@ fn run() {
                             if ui
                                 .add(
                                     egui::Button::new(egui::RichText::new("☰").size(22.0))
-                                        .min_size(egui::vec2(48.0, 48.0)),
+                                        .min_size(Self::ACTION_BUTTON_SIZE),
                                 )
                                 .clicked()
                             {
@@ -280,7 +316,7 @@ fn run() {
                                         self.mobile_mode == MobileMode::Pan,
                                         egui::RichText::new("\u{1F50D}").size(22.0),
                                     )
-                                    .min_size(egui::vec2(48.0, 48.0)),
+                                    .min_size(Self::ACTION_BUTTON_SIZE),
                                 )
                                 .clicked()
                             {
@@ -295,7 +331,7 @@ fn run() {
                                         self.mobile_mode == MobileMode::Draw,
                                         egui::RichText::new("\u{270F}").size(22.0),
                                     )
-                                    .min_size(egui::vec2(48.0, 48.0)),
+                                    .min_size(Self::ACTION_BUTTON_SIZE),
                                 )
                                 .clicked()
                             {
@@ -308,7 +344,7 @@ fn run() {
                                 .add_enabled(
                                     self.game.can_undo(),
                                     egui::Button::new(egui::RichText::new("\u{27F2}").size(22.0))
-                                        .min_size(egui::vec2(48.0, 48.0)),
+                                        .min_size(Self::ACTION_BUTTON_SIZE),
                                 )
                                 .clicked()
                             {
@@ -321,7 +357,7 @@ fn run() {
                                 .add_enabled(
                                     self.game.can_redo(),
                                     egui::Button::new(egui::RichText::new("\u{27F3}").size(22.0))
-                                        .min_size(egui::vec2(48.0, 48.0)),
+                                        .min_size(Self::ACTION_BUTTON_SIZE),
                                 )
                                 .clicked()
                             {
@@ -351,7 +387,7 @@ fn run() {
                 )
                 .backdrop_color(egui::Color32::from_black_alpha(128))
                 .show(ctx, |ui| {
-                    ui.set_min_width(vp_width - 32.0);
+                    ui.set_min_width((vp_width - 32.0).max(0.0));
                     ui.spacing_mut().interact_size.y = 36.0;
                     {
                         let prev = ui.visuals().button_frame;
@@ -360,8 +396,7 @@ fn run() {
                             .button(egui::RichText::new("🔄 New Game").size(menu_font_size))
                             .clicked()
                         {
-                            let preset = self.selected_preset;
-                            self.new_game(preset);
+                            self.start_new_game();
                             self.show_menu = false;
                         }
                         ui.visuals_mut().button_frame = prev;
@@ -382,23 +417,7 @@ fn run() {
                     }
                     ui.separator();
                     ui.label(egui::RichText::new("Theme").size(menu_font_size));
-                    let mut tp = ui.options(|o| o.theme_preference);
-                    ui.selectable_value(
-                        &mut tp,
-                        egui::ThemePreference::System,
-                        egui::RichText::new("💻 System").size(menu_font_size),
-                    );
-                    ui.selectable_value(
-                        &mut tp,
-                        egui::ThemePreference::Light,
-                        egui::RichText::new("☀ Light").size(menu_font_size),
-                    );
-                    ui.selectable_value(
-                        &mut tp,
-                        egui::ThemePreference::Dark,
-                        egui::RichText::new("🌙 Dark").size(menu_font_size),
-                    );
-                    ui.ctx().set_theme(tp);
+                    egui::widgets::global_theme_preference_buttons(ui);
                 });
 
             if response.should_close() {
