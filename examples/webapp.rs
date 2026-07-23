@@ -5,7 +5,7 @@
 #[xtask_wasm::run_example(assets_dir = "assets")]
 fn run() {
     use eframe::egui;
-    use egui_numberlink::{GameStatus, NumberlinkGame, NumberlinkWidget};
+    use egui_numberlink::{content_size, GameStatus, NumberlinkGame, NumberlinkWidget};
     use serde::{Deserialize, Serialize};
     use xtask_wasm::wasm_bindgen::JsCast as _;
 
@@ -38,10 +38,22 @@ fn run() {
         }
     }
 
+    /// The mobile action bar's mode: either the board is pannable/zoomable,
+    /// or it's fixed and a drag draws a path. Only one is active at a time,
+    /// since both want to own the same drag gesture.
+    #[derive(Clone, Copy, PartialEq)]
+    enum MobileMode {
+        Pan,
+        Draw,
+    }
+
     struct NumberlinkApp {
         game: NumberlinkGame,
         selected_preset: Preset,
         seed_counter: u64,
+        mobile_mode: MobileMode,
+        scene_rect: Option<egui::Rect>,
+        show_menu: bool,
     }
 
     impl eframe::App for NumberlinkApp {
@@ -50,11 +62,17 @@ fn run() {
             ui.painter()
                 .rect_filled(bg, egui::CornerRadius::ZERO, ui.visuals().panel_fill);
 
-            self.show_top_bar(ui);
+            let is_mobile = Self::is_mobile(ui);
 
-            ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
-                ui.add(NumberlinkWidget::new(&mut self.game));
-            });
+            self.show_top_bar(ui, is_mobile);
+
+            if is_mobile {
+                self.mobile_ui(ui);
+            } else {
+                self.desktop_ui(ui);
+            }
+
+            self.show_menu_modal(ui.ctx());
         }
 
         fn save(&mut self, storage: &mut dyn eframe::Storage) {
@@ -63,11 +81,14 @@ fn run() {
     }
 
     impl NumberlinkApp {
+        const MOBILE_CELL_SIZE: f32 = 40.0;
+
         fn new_game(&mut self, preset: Preset) {
             self.selected_preset = preset;
             let (w, h, pairs) = preset.dims();
             self.seed_counter += 1;
             self.game = NumberlinkGame::random(w, h, pairs, self.seed_counter);
+            self.scene_rect = None;
         }
 
         fn new(cc: &eframe::CreationContext<'_>) -> Self {
@@ -82,10 +103,32 @@ fn run() {
                 game: NumberlinkGame::random(w, h, pairs, initial_seed),
                 selected_preset,
                 seed_counter: initial_seed,
+                mobile_mode: MobileMode::Draw,
+                scene_rect: None,
+                show_menu: false,
             }
         }
 
-        fn show_top_bar(&mut self, ui: &mut egui::Ui) {
+        /// Narrow viewport or a coarse (touch) pointer: switches the app to
+        /// the panning, toolbar-driven mobile layout instead of the
+        /// fills-the-window desktop one.
+        fn is_mobile(ui: &egui::Ui) -> bool {
+            let content = ui.ctx().content_rect();
+            let width_small = content.width() < 900.0;
+            let touch_device = web_sys::window()
+                .and_then(|w| w.match_media("(pointer: coarse)").ok())
+                .flatten()
+                .is_some_and(|mql| mql.matches());
+            width_small || touch_device
+        }
+
+        fn show_top_bar(&mut self, ui: &mut egui::Ui, is_mobile: bool) {
+            if is_mobile {
+                // Top bar hidden on mobile; its actions live in the
+                // bottom action bar and hamburger menu instead.
+                return;
+            }
+
             egui::Panel::top("top_bar")
                 .frame(egui::Frame::new().inner_margin(4.0))
                 .show(ui, |ui| {
@@ -126,6 +169,241 @@ fn run() {
                         });
                     });
                 });
+        }
+
+        fn desktop_ui(&mut self, ui: &mut egui::Ui) {
+            ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
+                ui.add(NumberlinkWidget::new(&mut self.game));
+            });
+        }
+
+        fn mobile_ui(&mut self, ui: &mut egui::Ui) {
+            ui.spacing_mut().interact_size.y = 48.0;
+
+            self.show_action_bar(ui);
+
+            let board_footprint = content_size(&self.game, Self::MOBILE_CELL_SIZE);
+            let mut scene_rect = self
+                .scene_rect
+                .unwrap_or_else(|| egui::Rect::from_min_size(egui::Pos2::ZERO, board_footprint));
+            let zoom_range = egui::Rangef::new(0.25, 4.0);
+
+            if self.mobile_mode == MobileMode::Pan {
+                // Panning: the widget is disabled so it never claims the
+                // drag, leaving Scene's own background free to pan/zoom.
+                egui::containers::Scene::new()
+                    .zoom_range(zoom_range)
+                    .max_inner_size(board_footprint)
+                    .show(ui, &mut scene_rect, |ui| {
+                        ui.add(
+                            NumberlinkWidget::new(&mut self.game)
+                                .cell_size(Self::MOBILE_CELL_SIZE)
+                                .interactive(false),
+                        );
+                    });
+            } else {
+                // Draw: the widget stays fully interactive to draw paths,
+                // and the view is rendered locked (no Scene pan/zoom
+                // registration at all) so no gesture can move it.
+                Self::show_locked_scene(ui, scene_rect, board_footprint, zoom_range, |ui| {
+                    ui.add(NumberlinkWidget::new(&mut self.game).cell_size(Self::MOBILE_CELL_SIZE));
+                });
+            }
+
+            self.scene_rect = Some(scene_rect);
+        }
+
+        /// Renders `add_contents` at `scene_rect`'s pan/zoom transform
+        /// without registering `egui::containers::Scene`'s own drag/
+        /// scroll/pinch handling (which `Scene::show` always reads
+        /// regardless of its `sense` setting). Used whenever Pan mode
+        /// isn't active, so the view can't move no matter the gesture.
+        fn show_locked_scene(
+            ui: &mut egui::Ui,
+            scene_rect: egui::Rect,
+            max_inner_size: egui::Vec2,
+            zoom_range: egui::Rangef,
+            add_contents: impl FnOnce(&mut egui::Ui),
+        ) {
+            let (outer_rect, _) =
+                ui.allocate_exact_size(ui.available_size_before_wrap(), egui::Sense::hover());
+
+            let scale = zoom_range.clamp((outer_rect.size() / scene_rect.size()).min_elem());
+            let to_global = egui::emath::TSTransform::from_translation(
+                outer_rect.center().to_vec2() - scale * scene_rect.center().to_vec2(),
+            ) * egui::emath::TSTransform::from_scaling(scale);
+
+            let layer_id = egui::LayerId::new(ui.layer_id().order, ui.id().with("locked_scene"));
+            ui.ctx().set_sublayer(ui.layer_id(), layer_id);
+
+            let mut local_ui = ui.new_child(
+                egui::UiBuilder::new()
+                    .layer_id(layer_id)
+                    .max_rect(egui::Rect::from_min_size(egui::Pos2::ZERO, max_inner_size))
+                    .sense(egui::Sense::hover()),
+            );
+            local_ui.set_clip_rect(to_global.inverse() * outer_rect);
+            local_ui.ctx().set_transform_layer(layer_id, to_global);
+
+            add_contents(&mut local_ui);
+        }
+
+        /// Bottom toolbar for mobile: a hamburger menu for preset/new-game/
+        /// theme, a Pan/Draw mode toggle (whichever is active is
+        /// highlighted, since a drag gesture can't both pan the scene and
+        /// draw a path at once), and Undo/Redo.
+        fn show_action_bar(&mut self, ui: &mut egui::Ui) {
+            egui::Panel::bottom("action_bar")
+                .resizable(false)
+                .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(4, 4)))
+                .show(ui, |ui| {
+                    let center = egui::Layout::top_down(egui::Align::Center)
+                        .with_cross_align(egui::Align::Center);
+
+                    ui.columns(5, |columns| {
+                        columns[0].with_layout(center, |ui| {
+                            if ui
+                                .add(
+                                    egui::Button::new(egui::RichText::new("☰").size(22.0))
+                                        .min_size(egui::vec2(48.0, 48.0)),
+                                )
+                                .clicked()
+                            {
+                                self.show_menu = true;
+                            }
+                        });
+
+                        columns[1].with_layout(center, |ui| {
+                            if ui
+                                .add(
+                                    egui::Button::selectable(
+                                        self.mobile_mode == MobileMode::Pan,
+                                        egui::RichText::new("\u{1F50D}").size(22.0),
+                                    )
+                                    .min_size(egui::vec2(48.0, 48.0)),
+                                )
+                                .clicked()
+                            {
+                                self.mobile_mode = MobileMode::Pan;
+                            }
+                        });
+
+                        columns[2].with_layout(center, |ui| {
+                            if ui
+                                .add(
+                                    egui::Button::selectable(
+                                        self.mobile_mode == MobileMode::Draw,
+                                        egui::RichText::new("\u{270F}").size(22.0),
+                                    )
+                                    .min_size(egui::vec2(48.0, 48.0)),
+                                )
+                                .clicked()
+                            {
+                                self.mobile_mode = MobileMode::Draw;
+                            }
+                        });
+
+                        columns[3].with_layout(center, |ui| {
+                            if ui
+                                .add_enabled(
+                                    self.game.can_undo(),
+                                    egui::Button::new(egui::RichText::new("\u{27F2}").size(22.0))
+                                        .min_size(egui::vec2(48.0, 48.0)),
+                                )
+                                .clicked()
+                            {
+                                self.game.undo();
+                            }
+                        });
+
+                        columns[4].with_layout(center, |ui| {
+                            if ui
+                                .add_enabled(
+                                    self.game.can_redo(),
+                                    egui::Button::new(egui::RichText::new("\u{27F3}").size(22.0))
+                                        .min_size(egui::vec2(48.0, 48.0)),
+                                )
+                                .clicked()
+                            {
+                                self.game.redo();
+                            }
+                        });
+                    });
+                });
+        }
+
+        fn show_menu_modal(&mut self, ctx: &egui::Context) {
+            if !self.show_menu {
+                return;
+            }
+
+            let vp_width = ctx.viewport_rect().width();
+            let area = egui::Modal::default_area(egui::Id::new("menu_modal"))
+                .anchor(egui::Align2::CENTER_BOTTOM, egui::Vec2::ZERO)
+                .default_width(vp_width);
+
+            let menu_font_size = 24.0;
+            let response = egui::Modal::new(egui::Id::new("menu_modal"))
+                .area(area)
+                .frame(
+                    egui::Frame::popup(&ctx.global_style())
+                        .inner_margin(egui::Margin::symmetric(16, 16)),
+                )
+                .backdrop_color(egui::Color32::from_black_alpha(128))
+                .show(ctx, |ui| {
+                    ui.set_min_width(vp_width - 32.0);
+                    ui.spacing_mut().interact_size.y = 36.0;
+                    {
+                        let prev = ui.visuals().button_frame;
+                        ui.visuals_mut().button_frame = false;
+                        if ui
+                            .button(egui::RichText::new("🔄 New Game").size(menu_font_size))
+                            .clicked()
+                        {
+                            let preset = self.selected_preset;
+                            self.new_game(preset);
+                            self.show_menu = false;
+                        }
+                        ui.visuals_mut().button_frame = prev;
+                    }
+                    ui.separator();
+                    ui.label(egui::RichText::new("Difficulty").size(menu_font_size));
+                    for &preset in Preset::ALL {
+                        if ui
+                            .selectable_label(
+                                self.selected_preset == preset,
+                                egui::RichText::new(preset.label()).size(menu_font_size),
+                            )
+                            .clicked()
+                        {
+                            self.new_game(preset);
+                            self.show_menu = false;
+                        }
+                    }
+                    ui.separator();
+                    ui.label(egui::RichText::new("Theme").size(menu_font_size));
+                    let mut tp = ui.options(|o| o.theme_preference);
+                    ui.selectable_value(
+                        &mut tp,
+                        egui::ThemePreference::System,
+                        egui::RichText::new("💻 System").size(menu_font_size),
+                    );
+                    ui.selectable_value(
+                        &mut tp,
+                        egui::ThemePreference::Light,
+                        egui::RichText::new("☀ Light").size(menu_font_size),
+                    );
+                    ui.selectable_value(
+                        &mut tp,
+                        egui::ThemePreference::Dark,
+                        egui::RichText::new("🌙 Dark").size(menu_font_size),
+                    );
+                    ui.ctx().set_theme(tp);
+                });
+
+            if response.should_close() {
+                self.show_menu = false;
+            }
         }
     }
 
