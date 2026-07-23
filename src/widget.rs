@@ -235,7 +235,11 @@ impl Widget for NumberlinkWidget<'_> {
         // puzzle's numbers are visible before the player starts, and drawn
         // last so they sit cleanly on top of a path's end.
         let marker_radius = cell_size * 0.32;
-        let font = TextStyle::Button.resolve(ui.style());
+        // Monospace at a size scaled to the marker (not a fixed UI text
+        // style) so the digit reads as big and bold at any board size —
+        // matches `egui-minesweeper`'s adjacent-mine-count digits, which
+        // use the same `FontId::monospace(cell_size * factor)` approach.
+        let font = egui::FontId::monospace(cell_size * 0.42);
         for number in 0..game.pair_count() {
             let color = color_for(number);
             let text_color = contrasting_text_color(color);

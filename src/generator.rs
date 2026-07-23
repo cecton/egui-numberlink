@@ -5,11 +5,16 @@
 //! 1. Build one random Hamiltonian path over the whole `width x height` grid
 //!    via randomized backtracking (a rectangular grid graph always has one;
 //!    small boards make this fast).
-//! 2. Cut it into `pair_count` contiguous segments at random interior
-//!    points. Each segment's two ends become one number's fixed endpoints.
-//!    This guarantees full-board coverage *and* at least one valid solution
-//!    (the one just constructed) by construction, regardless of what
-//!    happens next.
+//! 2. Cut it into `pair_count` contiguous segments, each biased towards a
+//!    roughly even share of the path (see `cut_into_segments`) and rejected
+//!    (retrying with fresh cut points on the same path) if any segment's
+//!    own two endpoints turn out directly adjacent — otherwise a pair like
+//!    that has literally one possible move, and the slack it should have
+//!    used gets forced onto some other pair as an ugly, oversized detour.
+//!    Each segment's two ends become one number's fixed endpoints. This
+//!    guarantees full-board coverage *and* at least one valid solution (the
+//!    one just constructed) by construction, regardless of what happens
+//!    next.
 //! 3. *Prefer* a verified-unique layout: a bounded-budget backtracking
 //!    solver (with connectivity pruning, see `Solver::is_feasible`) counts
 //!    full-board, non-crossing path-sets connecting every number's
@@ -39,6 +44,11 @@ const MAX_ATTEMPTS: u32 = 500;
 /// generated (see the module docs above). Bounds worst-case generation
 /// latency to roughly `UNIQUENESS_ATTEMPTS * SOLVE_BUDGET` solver nodes.
 const UNIQUENESS_ATTEMPTS: u32 = 30;
+/// How many times to re-cut the same Hamiltonian path (cheap — no search
+/// involved) looking for a set of segments where no pair's own two
+/// endpoints end up directly adjacent, before giving up and using the last
+/// attempt regardless.
+const CUT_ATTEMPTS: u32 = 40;
 
 fn to_idx(cell: Cell, width: usize) -> usize {
     cell.1 * width + cell.0
@@ -145,13 +155,40 @@ fn ranked_neighbors(
 }
 
 /// Cut a full-board Hamiltonian path into `pair_count` contiguous, non-empty
-/// (at least 2 cells each) segments at random interior boundaries.
+/// (at least 2 cells each) segments, biased towards even lengths, and
+/// retried (same path, fresh cut points) up to [`CUT_ATTEMPTS`] times if any
+/// segment's own two endpoints turn out directly adjacent (that pair would
+/// have exactly one possible move — see the module docs). Falls back to the
+/// last attempt if none qualify within budget, so this always terminates.
 fn cut_into_segments(path: &[Cell], pair_count: usize, rng: &mut fastrand::Rng) -> Vec<Vec<Cell>> {
+    let mut last = None;
+    for _ in 0..CUT_ATTEMPTS {
+        let segments = cut_once(path, pair_count, rng);
+        let any_adjacent = segments
+            .iter()
+            .any(|s| is_adjacent(s[0], *s.last().expect("segment has >= 2 cells")));
+        if !any_adjacent {
+            return segments;
+        }
+        last = Some(segments);
+    }
+    last.expect("CUT_ATTEMPTS > 0, so at least one attempt was made")
+}
+
+/// One attempt at cutting `path` into `pair_count` contiguous segments.
+/// Choose `pair_count - 1` cut points among the `path.len() - 1` gaps
+/// between consecutive cells, each biased to land near a running target of
+/// `path.len() / pair_count` cells per segment (± a bounded jitter) rather
+/// than uniformly across the *entire* remaining range — a fully uniform
+/// choice made a 2-cell segment exactly as likely as one consuming most of
+/// what's left, so a few unlucky small cuts routinely forced some other
+/// pair into an oversized, forced-looking detour to use up the slack.
+/// Every segment still keeps at least 2 cells (a single-cell segment can't
+/// have two distinct endpoints).
+fn cut_once(path: &[Cell], pair_count: usize, rng: &mut fastrand::Rng) -> Vec<Vec<Cell>> {
     debug_assert!(path.len() >= pair_count * 2);
-    // Choose `pair_count - 1` distinct cut points among the `path.len() - 1`
-    // gaps between consecutive cells, then locally adjust so every resulting
-    // segment keeps at least 2 cells (a single-cell segment can't have two
-    // distinct endpoints).
+    let target_len = path.len() / pair_count;
+    let jitter = (target_len / 4).max(1);
     let mut cuts: Vec<usize> = Vec::with_capacity(pair_count.saturating_sub(1));
     let mut boundary = 0usize;
     for remaining_segments in (1..pair_count).rev() {
@@ -160,7 +197,14 @@ fn cut_into_segments(path: &[Cell], pair_count: usize, rng: &mut fastrand::Rng) 
         // cells after it and at least 2 cells since the previous boundary.
         let min = boundary + 2;
         let max = path.len() - remaining_segments * 2;
-        let cut = if max > min { rng.usize(min..=max) } else { min };
+        let target = (boundary + target_len).clamp(min, max);
+        let lo = target.saturating_sub(jitter).max(min);
+        let hi = (target + jitter).min(max);
+        let cut = if hi > lo {
+            rng.usize(lo..=hi)
+        } else {
+            min.min(max)
+        };
         cuts.push(cut);
         boundary = cut;
     }
@@ -462,6 +506,28 @@ mod tests {
             for seed in 0..3 {
                 let endpoints = generate(width, height, pairs, seed);
                 assert_eq!(endpoints.len(), pairs);
+            }
+        }
+    }
+
+    #[test]
+    fn generated_pairs_are_never_trivially_adjacent() {
+        // Regression test: `cut_into_segments` used to pick cut points
+        // uniformly across the whole remaining range, making a 2-cell
+        // segment (endpoints directly touching, so the only "solution" is
+        // the trivial one-step join) about as likely as one big enough to
+        // eat most of the board — reported as several adjacent-looking
+        // pairs plus a couple of forced, oversized snakes on Intermediate.
+        for (width, height, pairs) in [(5, 5, 4), (7, 7, 6), (9, 9, 8)] {
+            for seed in 0..10 {
+                let endpoints = generate(width, height, pairs, seed);
+                for &(a, b) in &endpoints {
+                    assert!(
+                        !is_adjacent(a, b),
+                        "pair {a:?}-{b:?} is directly adjacent on a {width}x{height}/{pairs} \
+                         board (seed {seed})"
+                    );
+                }
             }
         }
     }
