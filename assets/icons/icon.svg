@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">egui-numberlink icon</title>
+  <desc id="desc">A stylized numberlink tile with two numbered, non-crossing pipe paths filling a 3x3 grid.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#173B4D"/>
+      <stop offset="100%" stop-color="#0E2430"/>
+    </linearGradient>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#F6F7F9"/>
+      <stop offset="100%" stop-color="#D7DEE8"/>
+    </linearGradient>
+  </defs>
+  <rect x="24" y="24" width="464" height="464" rx="104" fill="url(#bg)"/>
+  <rect x="96" y="102" width="336" height="336" rx="54" fill="#000000" opacity="0.22"/>
+  <rect x="88" y="88" width="336" height="336" rx="54" fill="url(#tile)"/>
+
+  <!-- Faint 3x3 grid lines inside the tile, cells at x/y = 144, 256, 368. -->
+  <g stroke="#B9C2D0" stroke-width="3">
+    <line x1="200" y1="88" x2="200" y2="424"/>
+    <line x1="312" y1="88" x2="312" y2="424"/>
+    <line x1="88" y1="200" x2="424" y2="200"/>
+    <line x1="88" y1="312" x2="424" y2="312"/>
+  </g>
+
+  <!--
+    Two non-crossing paths tiling every one of the 3x3 grid's 9 cells,
+    drawn through cell centers (never along the grid lines above) so the
+    icon reads as a solved Numberlink board. Path 1 (blue): top row, then
+    down the right column. Path 2 (orange): left column, then across the
+    middle-bottom row.
+  -->
+  <polyline points="144,144 256,144 368,144 368,256 368,368"
+            fill="none" stroke="#3E7CB1" stroke-width="40"
+            stroke-linecap="round" stroke-linejoin="round"/>
+  <polyline points="144,368 144,256 256,256 256,368"
+            fill="none" stroke="#D97F35" stroke-width="40"
+            stroke-linecap="round" stroke-linejoin="round"/>
+
+  <g font-family="sans-serif" font-weight="700" font-size="34" fill="#ffffff" text-anchor="middle">
+    <circle cx="144" cy="144" r="30" fill="#3E7CB1"/>
+    <text x="144" y="156">1</text>
+    <circle cx="368" cy="368" r="30" fill="#3E7CB1"/>
+    <text x="368" y="380">1</text>
+    <circle cx="144" cy="368" r="30" fill="#D97F35"/>
+    <text x="144" y="380">2</text>
+    <circle cx="256" cy="368" r="30" fill="#D97F35"/>
+    <text x="256" y="380">2</text>
+  </g>
+</svg>
