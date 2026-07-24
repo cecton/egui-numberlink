@@ -7,6 +7,10 @@ Versioning](semver).
 
 ## [Unreleased]
 
+### Added
+
+- Mobile/narrow-mode layout for the web demo: bottom action bar with Pan/Draw mode toggle, pannable/zoomable board, and hamburger menu for preset selection, new game, and theme
+
 ## [0.1.0] - 2026-07-23
 
 ### Added
