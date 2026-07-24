@@ -7,9 +7,15 @@ Versioning](semver).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-07-24
+
 ### Added
 
 - Mobile/narrow-mode layout for the web demo: bottom action bar with Pan/Draw mode toggle, pannable/zoomable board, and hamburger menu for preset selection, new game, and theme
+
+### Fixed
+
+- Drag through undrawn endpoints and past own completed endpoint no longer allowed
 
 ## [0.1.0] - 2026-07-23
 
@@ -27,5 +33,6 @@ Versioning](semver).
 
 [keep_a_changelog]: https://keepachangelog.com/en/1.1.0
 [semver]: https://semver.org/spec/v2.0.0.html
-[Unreleased]: https://github.com/cecton/egui-numberlink/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/cecton/egui-numberlink/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/cecton/egui-numberlink/releases/tag/v0.1.1
 [0.1.0]: https://github.com/cecton/egui-numberlink/releases/tag/v0.1.0
