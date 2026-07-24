@@ -225,8 +225,13 @@ fn run() {
             self.scene_rect = Some(scene_rect);
 
             if self.game.status == GameStatus::Won {
+                // Anchored to the bottom (not the center) so it never
+                // overlaps the widget's own win banner, which is centered
+                // on the board and can be up to 64px tall — a fixed offset
+                // from center would have to guess that widget-internal
+                // size to stay clear of it.
                 egui::Area::new(egui::Id::new("mobile_new_game_overlay"))
-                    .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 40.0))
+                    .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -16.0))
                     .constrain_to(content_area)
                     .order(egui::Order::Foreground)
                     .show(ui.ctx(), |ui| {
