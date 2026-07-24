@@ -422,7 +422,23 @@ fn run() {
                     }
                     ui.separator();
                     ui.label(egui::RichText::new("Theme").size(menu_font_size));
-                    egui::widgets::global_theme_preference_buttons(ui);
+                    let mut tp = ui.options(|o| o.theme_preference);
+                    ui.selectable_value(
+                        &mut tp,
+                        egui::ThemePreference::System,
+                        egui::RichText::new("💻 System").size(menu_font_size),
+                    );
+                    ui.selectable_value(
+                        &mut tp,
+                        egui::ThemePreference::Light,
+                        egui::RichText::new("☀ Light").size(menu_font_size),
+                    );
+                    ui.selectable_value(
+                        &mut tp,
+                        egui::ThemePreference::Dark,
+                        egui::RichText::new("🌙 Dark").size(menu_font_size),
+                    );
+                    ui.ctx().set_theme(tp);
                 });
 
             if response.should_close() {
