@@ -192,13 +192,13 @@ fn run() {
             ui.spacing_mut().interact_size.y = 48.0;
 
             self.show_action_bar(ui);
-            let content_area = ui.available_rect_before_wrap();
 
             let board_footprint = content_size(&self.game, Self::MOBILE_CELL_SIZE);
             let mut scene_rect = self
                 .scene_rect
                 .unwrap_or_else(|| egui::Rect::from_min_size(egui::Pos2::ZERO, board_footprint));
             let zoom_range = egui::Rangef::new(0.25, 4.0);
+            let mut start_new_game_clicked = false;
 
             if self.mobile_mode == MobileMode::Pan {
                 // Panning: the widget is disabled so it never claims the
@@ -212,6 +212,10 @@ fn run() {
                                 .cell_size(Self::MOBILE_CELL_SIZE)
                                 .interactive(false),
                         );
+                        if self.game.status == GameStatus::Won {
+                            start_new_game_clicked |=
+                                Self::show_win_new_game_button(ui, board_footprint);
+                        }
                     });
             } else {
                 // Draw: the widget stays fully interactive to draw paths,
@@ -219,30 +223,60 @@ fn run() {
                 // registration at all) so no gesture can move it.
                 Self::show_locked_scene(ui, scene_rect, board_footprint, zoom_range, |ui| {
                     ui.add(NumberlinkWidget::new(&mut self.game).cell_size(Self::MOBILE_CELL_SIZE));
+                    if self.game.status == GameStatus::Won {
+                        start_new_game_clicked |=
+                            Self::show_win_new_game_button(ui, board_footprint);
+                    }
                 });
             }
 
             self.scene_rect = Some(scene_rect);
 
-            if self.game.status == GameStatus::Won {
-                // Anchored to the bottom (not the center) so it never
-                // overlaps the widget's own win banner, which is centered
-                // on the board and can be up to 64px tall — a fixed offset
-                // from center would have to guess that widget-internal
-                // size to stay clear of it.
-                egui::Area::new(egui::Id::new("mobile_new_game_overlay"))
-                    .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -16.0))
-                    .constrain_to(content_area)
-                    .order(egui::Order::Foreground)
-                    .show(ui.ctx(), |ui| {
-                        let button =
-                            egui::Button::new(egui::RichText::new("\u{1F504} New Game").size(20.0))
-                                .min_size(egui::vec2(180.0, 48.0));
-                        if ui.add(button).clicked() {
-                            self.start_new_game();
-                        }
-                    });
+            if start_new_game_clicked {
+                self.start_new_game();
             }
+        }
+
+        /// Draws a "New Game" button attached directly below the widget's
+        /// own win banner — same translucent fill, only the bottom corners
+        /// rounded, so it reads as one continuous card — inside the same
+        /// transformed coordinate space as the board (both `Scene::show`
+        /// and `show_locked_scene` give their contents the same local
+        /// origin, `Pos2::ZERO`), so the button stays aligned with the
+        /// banner under any pan/zoom instead of floating separately.
+        /// Returns whether it was clicked.
+        fn show_win_new_game_button(ui: &mut egui::Ui, board_footprint: egui::Vec2) -> bool {
+            // Mirrors the win banner geometry computed in
+            // `NumberlinkWidget`'s own painting code.
+            let board_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, board_footprint);
+            let banner_size = egui::Vec2::new(
+                (board_footprint.x - 20.0).max(20.0),
+                64.0_f32.min(board_footprint.y - 4.0).max(20.0),
+            );
+            let banner = egui::Rect::from_center_size(board_rect.center(), banner_size);
+
+            let extension = egui::Rect::from_min_size(
+                egui::pos2(banner.min.x, banner.max.y),
+                egui::vec2(banner.width(), 64.0),
+            );
+            ui.painter().rect_filled(
+                extension,
+                egui::CornerRadius {
+                    nw: 0,
+                    ne: 0,
+                    sw: 8,
+                    se: 8,
+                },
+                egui::Color32::from_black_alpha(170),
+            );
+
+            let button_rect =
+                egui::Rect::from_center_size(extension.center(), egui::vec2(168.0, 48.0));
+            ui.put(
+                button_rect,
+                egui::Button::new(egui::RichText::new("\u{1F504} New Game").size(18.0)),
+            )
+            .clicked()
         }
 
         /// Renders `add_contents` at `scene_rect`'s pan/zoom transform
