@@ -183,7 +183,12 @@ impl NumberlinkGame {
     /// via [`Self::start_drag`]) towards `cell`:
     /// - Moving onto an empty, orthogonally-adjacent cell extends the path.
     /// - Moving onto the path's own second-to-last cell retracts it by one.
-    /// - Moving onto a cell owned by a *different* number is rejected.
+    /// - Moving onto a node (drawn or not) belonging to a *different* number
+    ///   is rejected — a path may never pass through another number's
+    ///   endpoint, drawn or otherwise.
+    /// - Once the path has reached its own far endpoint, it's complete and
+    ///   rejects any further extension (retracting off that endpoint,
+    ///   per the point above, is still allowed).
     ///
     /// No-op if `number` has no path started (call [`Self::start_drag`]
     /// first) or `cell` is neither adjacent nor a retraction target.
@@ -200,6 +205,13 @@ impl NumberlinkGame {
             self.set_owner(removed, None);
             return;
         }
+        let (a, b) = self.endpoints[number];
+        if self.paths[number].len() > 1 && (last == a || last == b) {
+            // The path already reached its own far endpoint (the anchor,
+            // at index 0, doesn't count) — it's complete and cannot be
+            // extended past it.
+            return;
+        }
         if !generator::is_adjacent(last, cell) {
             return;
         }
@@ -210,6 +222,19 @@ impl NumberlinkGame {
             // Occupied by this same number but not the retraction target
             // above (i.e. the path looping back on itself) — reject.
             return;
+        }
+        if let Some(owner) = self
+            .endpoints
+            .iter()
+            .position(|&(a, b)| cell == a || cell == b)
+        {
+            if owner != number {
+                // A different number's node, not yet drawn onto — do not
+                // let the path pass through it.
+                return;
+            }
+            // Else: this number's own undrawn far endpoint — fall through
+            // and let it complete the path below.
         }
         self.paths[number].push(cell);
         self.set_owner(cell, Some(number));
@@ -347,6 +372,19 @@ mod tests {
     }
 
     #[test]
+    fn drag_cannot_extend_past_its_own_completed_endpoint() {
+        let mut game = NumberlinkGame::from_endpoints(4, 1, vec![((0, 0), (2, 0))]);
+        game.start_drag(0, (0, 0));
+        game.drag_to(0, (1, 0));
+        game.drag_to(0, (2, 0)); // reaches the far endpoint - path complete
+        assert_eq!(game.path_cells(0), &[(0, 0), (1, 0), (2, 0)]);
+
+        game.drag_to(0, (3, 0)); // must be rejected: can't pass through own endpoint
+        assert_eq!(game.path_cells(0), &[(0, 0), (1, 0), (2, 0)]);
+        assert_eq!(game.owner_at((3, 0)), None);
+    }
+
+    #[test]
     fn cannot_step_onto_another_numbers_path() {
         let mut game = small_game();
         game.start_drag(0, (0, 0));
@@ -356,6 +394,19 @@ mod tests {
         game.start_drag(1, (0, 1));
         game.drag_to(1, (1, 0)); // belongs to number 0, must be rejected
         assert_eq!(game.path_cells(1), &[(0, 1)]);
+    }
+
+    #[test]
+    fn cannot_drag_through_an_undrawn_endpoint_of_another_number() {
+        // 3x2 board: number 0 spans the full top row (0,0)-(2,0); number 1's
+        // endpoints are (1,0) — sitting directly in the middle of number 0's
+        // straight line — and (1,1).
+        let mut game =
+            NumberlinkGame::from_endpoints(3, 2, vec![((0, 0), (2, 0)), ((1, 0), (1, 1))]);
+        game.start_drag(0, (0, 0));
+        game.drag_to(0, (1, 0)); // must be rejected: (1,0) is number 1's node
+        assert_eq!(game.path_cells(0), &[(0, 0)]);
+        assert_eq!(game.owner_at((1, 0)), None);
     }
 
     #[test]
