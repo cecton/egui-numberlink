@@ -5,4 +5,4 @@ mod generator;
 mod widget;
 
 pub use game::{GameStatus, NumberlinkGame};
-pub use widget::{content_size, NumberlinkWidget, DEFAULT_COLORS};
+pub use widget::{content_size, fit_cell_size, NumberlinkWidget, DEFAULT_COLORS};

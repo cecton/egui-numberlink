@@ -5,7 +5,9 @@
 #[xtask_wasm::run_example(assets_dir = "assets")]
 fn run() {
     use eframe::egui;
-    use egui_numberlink::{content_size, GameStatus, NumberlinkGame, NumberlinkWidget};
+    use egui_numberlink::{
+        content_size, fit_cell_size, GameStatus, NumberlinkGame, NumberlinkWidget,
+    };
     use serde::{Deserialize, Serialize};
     use xtask_wasm::wasm_bindgen::JsCast as _;
 
@@ -53,6 +55,7 @@ fn run() {
         seed_counter: u64,
         mobile_mode: MobileMode,
         scene_rect: Option<egui::Rect>,
+        mobile_cell_size: Option<f32>,
         show_menu: bool,
         touch_device: bool,
     }
@@ -82,7 +85,7 @@ fn run() {
     }
 
     impl NumberlinkApp {
-        const MOBILE_CELL_SIZE: f32 = 40.0;
+        const MOBILE_MIN_CELL_SIZE: f32 = 28.0;
         const ACTION_BUTTON_SIZE: egui::Vec2 = egui::vec2(48.0, 48.0);
 
         fn new_game(&mut self, preset: Preset) {
@@ -118,6 +121,7 @@ fn run() {
                 seed_counter: initial_seed,
                 mobile_mode: MobileMode::Draw,
                 scene_rect: None,
+                mobile_cell_size: None,
                 show_menu: false,
                 touch_device,
             }
@@ -188,12 +192,42 @@ fn run() {
             });
         }
 
+        /// The cell size to render the board at on mobile: fit to the
+        /// available space (the same formula `NumberlinkWidget` uses
+        /// internally on desktop), floored at a touch-friendly minimum.
+        /// Deliberately uncapped on the high end: `Scene`'s initial fit
+        /// (both here and in `show_locked_scene`) unconditionally scales
+        /// `board_footprint` to match the outer rect — there's no "already
+        /// the right size" special case — so handing it a smaller
+        /// `cell_size` than the viewport wants doesn't produce a smaller
+        /// board, it produces the *same* board stretched back up by Scene
+        /// to fill the space. Since fixed-width strokes and pre-rasterized
+        /// text don't get re-tessellated/re-rasterized by that transform,
+        /// stretching (scale > 1) blurs them exactly like shrinking (scale
+        /// < 1) fades them — so the only way to keep Scene's fit at ~1.0,
+        /// and thus crisp, is to let `cell_size` be whatever actually fills
+        /// the viewport. The floor is the one exception: for boards too
+        /// large to fit at a comfortable tap size, some residual Scene
+        /// shrink is accepted as the lesser problem. Resets `scene_rect`
+        /// whenever the computed size changes (a live viewport resize —
+        /// board-size changes already reset it via `new_game`) so Scene's
+        /// framing stays consistent with the new footprint.
+        fn mobile_cell_size(&mut self, available: egui::Vec2) -> f32 {
+            let fitted = fit_cell_size(&self.game, available).max(Self::MOBILE_MIN_CELL_SIZE);
+            if self.mobile_cell_size != Some(fitted) {
+                self.mobile_cell_size = Some(fitted);
+                self.scene_rect = None;
+            }
+            fitted
+        }
+
         fn mobile_ui(&mut self, ui: &mut egui::Ui) {
             ui.spacing_mut().interact_size.y = 48.0;
 
             self.show_action_bar(ui);
 
-            let board_footprint = content_size(&self.game, Self::MOBILE_CELL_SIZE);
+            let cell_size = self.mobile_cell_size(ui.available_size());
+            let board_footprint = content_size(&self.game, cell_size);
             let mut scene_rect = self
                 .scene_rect
                 .unwrap_or_else(|| egui::Rect::from_min_size(egui::Pos2::ZERO, board_footprint));
@@ -209,7 +243,7 @@ fn run() {
                     .show(ui, &mut scene_rect, |ui| {
                         ui.add(
                             NumberlinkWidget::new(&mut self.game)
-                                .cell_size(Self::MOBILE_CELL_SIZE)
+                                .cell_size(cell_size)
                                 .interactive(false),
                         );
                         if self.game.status == GameStatus::Won {
@@ -222,7 +256,7 @@ fn run() {
                 // and the view is rendered locked (no Scene pan/zoom
                 // registration at all) so no gesture can move it.
                 Self::show_locked_scene(ui, scene_rect, board_footprint, zoom_range, |ui| {
-                    ui.add(NumberlinkWidget::new(&mut self.game).cell_size(Self::MOBILE_CELL_SIZE));
+                    ui.add(NumberlinkWidget::new(&mut self.game).cell_size(cell_size));
                     if self.game.status == GameStatus::Won {
                         start_new_game_clicked |=
                             Self::show_win_new_game_button(ui, board_footprint);

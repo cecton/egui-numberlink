@@ -26,6 +26,17 @@ pub fn content_size(game: &NumberlinkGame, cell_size: f32) -> Vec2 {
     Vec2::new(game.width as f32, game.height as f32) * cell_size
 }
 
+/// The cell size (in logical pixels) that fits `game`'s board into
+/// `available` space — the same auto-sizing formula [`NumberlinkWidget`]
+/// uses internally when no explicit `cell_size` is set. Lets a caller
+/// pre-compute that fit (e.g. to size a `Scene` before laying the widget
+/// out inside it) instead of duplicating the formula.
+pub fn fit_cell_size(game: &NumberlinkGame, available: Vec2) -> f32 {
+    let by_width = available.x / game.width as f32;
+    let by_height = available.y / game.height as f32;
+    by_width.min(by_height).max(4.0)
+}
+
 /// An egui widget that renders an interactive Numberlink board.
 ///
 /// Press and drag from either of a number's two endpoints (both are always
@@ -132,12 +143,7 @@ impl Widget for NumberlinkWidget<'_> {
         let height = game.height;
         let color_for = |number: usize| colors[number % colors.len()];
 
-        let cell_size = cell_size.unwrap_or_else(|| {
-            let available = ui.available_size();
-            let by_width = available.x / width as f32;
-            let by_height = available.y / height as f32;
-            by_width.min(by_height).max(4.0)
-        });
+        let cell_size = cell_size.unwrap_or_else(|| fit_cell_size(game, ui.available_size()));
 
         let total_size = Vec2::new(width as f32, height as f32) * cell_size;
         let sense = if interactive {
