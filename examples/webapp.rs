@@ -31,6 +31,11 @@ fn run() {
             }
         }
 
+        /// `(width, height, pair_count)`. The board is always fully covered
+        /// by the puzzle's own paths (no walls) — difficulty instead comes
+        /// from board size and how many pairs share full coverage of it,
+        /// since more pairs packed onto the same board means more
+        /// interleaving the player must reason about to trace each path.
         fn dims(self) -> (usize, usize, usize) {
             match self {
                 Self::Beginner => (5, 5, 4),

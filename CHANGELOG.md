@@ -7,6 +7,15 @@ Versioning](semver).
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** `GameStatus::Won` no longer requires filling every non-blocked cell — only connecting every pair. Filling the whole board was a Flow-Free-specific convention, not a Numberlink one; requiring it turned out to add no real difficulty once endpoints were well spread (see the next bullet), just mechanical clean-up after the puzzle was already effectively solved. Blocked cells remain a real routing obstacle (a path may never enter one), they just aren't also required to be used by someone
+- **Breaking:** `NumberlinkGame::random`'s generator was reworked to fix generated pairs' numbers often ending up right next to each other, making puzzles trivially easy: it still builds one Hamiltonian path over the whole board, but now actively *searches* many candidate cut-point configurations and keeps whichever spreads every segment's own two endpoints apart the most (relative to that segment's own length), instead of accepting the first cut whose endpoints simply aren't touching. The generator never produces blocked cells, so `NumberlinkGame::random` drops the `fill_density` parameter it briefly took
+- `NumberlinkGame::from_endpoints` now delegates to a new `NumberlinkGame::from_endpoints_with_blocked`, which also accepts a set of blocked cells (walls no path may ever enter) for hand-authored/curated puzzles — not produced by the generator itself
+- `NumberlinkWidget` renders blocked cells with a distinct fill and diagonal hatch so they read as walls rather than empty space still waiting to be drawn on
+- `GameStatus::Won`'s and `NumberlinkGame::random`'s doc comments now describe the generator's uniqueness check honestly as best-effort (preferred, not guaranteed), matching what `generator.rs`'s module doc already said
+- The web demo's difficulty presets no longer take a `fill_density` argument, matching the generator's simplified signature
+
 ## [0.1.1] - 2026-07-24
 
 ### Added

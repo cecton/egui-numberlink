@@ -12,15 +12,17 @@
 A self-contained Numberlink puzzle game library for [egui](https://github.com/emilk/egui).
 
 Numberlink is the classic puzzle of connecting matching pairs of numbered
-endpoints on a grid with a path each, such that no two paths cross and (in
-this crate's variant) every cell of the board ends up covered by exactly one
-path.
+endpoints on a grid with a path each, such that no two paths cross and every
+non-blocked cell of the board ends up covered by exactly one path. Some cells
+may be permanently blocked (walls no path may ever enter), which is what
+makes lower-density procedural puzzles genuinely harder rather than merely
+bigger.
 
 ## Features
 
 - Pure game logic struct (`NumberlinkGame`) with no egui dependency — usable headlessly or with any renderer
-- Ready-to-use egui `Widget` (`NumberlinkWidget`) that renders an interactive, numbered board
-- Two ways to build a puzzle: `NumberlinkGame::from_endpoints` (supply your own endpoints) and `NumberlinkGame::random` (procedural, seeded, always has a full-board solution by construction and prefers one verified unique within a bounded search)
+- Ready-to-use egui `Widget` (`NumberlinkWidget`) that renders an interactive, numbered board, including any blocked (wall) cells
+- Two ways to build a puzzle: `NumberlinkGame::from_endpoints`/`from_endpoints_with_blocked` (supply your own endpoints and, optionally, blocked cells) and `NumberlinkGame::random` (procedural, seeded, always has a solution by construction and prefers one verified unique within a bounded search)
 - Endpoints are always labeled with numbers, like the original Numberlink — color is an optional, fully customizable skin on top, not a replacement
 - `NumberlinkWidget::colors` lets embedding apps supply their own per-number palette; defaults to a colorblind-safe built-in one
 - Paths are drawn through the interior of each cell (connecting cell centers, turning at a cell's center), never along a cell's border
@@ -50,9 +52,11 @@ let mut game = NumberlinkGame::from_endpoints(
     vec![((0, 0), (2, 2)), ((0, 2), (1, 2))],
 );
 
-// Or a procedural puzzle, reproducible via a seed, verified to have exactly
-// one full-board solution:
-let mut game = NumberlinkGame::random(6, 6, 5, 42);
+// Or a procedural puzzle, reproducible via a seed: 5 pairs on a 6x6 board,
+// with 70% of cells playable (the rest permanently blocked). The generator
+// prefers a layout it can verify has exactly one solution, within a bounded
+// search.
+let mut game = NumberlinkGame::random(6, 6, 5, 0.7, 42);
 
 // Inside your egui update/UI closure:
 ui.add(egui_numberlink::NumberlinkWidget::new(&mut game));

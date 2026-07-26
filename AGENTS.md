@@ -13,10 +13,16 @@ to be pulled into other egui apps as a dependency (see
 embedding example).
 
 Numberlink is the puzzle of connecting matching pairs of numbered endpoints
-on a grid with a path each, no two paths crossing, filling the whole board.
-"Flow Free" is a trademarked product name for a specific commercial game in
-this genre — never use it in code, docs, or the crate's own naming; this
-project only ever refers to the genre by its generic name, Numberlink.
+on a grid with a path each, no two paths crossing — winning only requires
+connecting every pair, not filling the whole board (that's a Flow-Free-
+specific convention, not a Numberlink one; see `GameStatus::Won`). Some cells
+may be permanently blocked (walls no path may ever enter), for hand-authored/
+curated puzzles built via `NumberlinkGame::from_endpoints_with_blocked` — the
+procedural generator itself never produces blocked cells (see
+`src/generator.rs` below). "Flow Free" is a trademarked product name for a
+specific commercial game in this genre — never use it in code, docs, or the
+crate's own naming; this project only ever refers to the genre by its
+generic name, Numberlink.
 
 ## Module layout
 
@@ -25,15 +31,28 @@ project only ever refers to the genre by its generic name, Numberlink.
   headlessly (e.g. for tests or a non-egui renderer) without pulling in any
   painting code.
 - `src/generator.rs` — puzzle generation (`pub(crate)` only, not part of the
-  public API): a random Hamiltonian path over the board (Warnsdorff's rule
-  ordering, see `ranked_neighbors` — plain randomized order doesn't scale
-  much past 4x4), cut into numbered segments, with a bounded backtracking
-  solver (connectivity-pruned, see `Solver::is_feasible`) that *prefers* a
-  layout verified unique but falls back to the first constructively-valid
-  one if none turns up within budget (see the module's doc comment for why
-  global uniqueness isn't chased at all costs here). Internal detail of
-  `NumberlinkGame::random`; keep it that way unless there's a concrete need
-  for lower-level access.
+  public API): a random Hamiltonian path over the whole board (Warnsdorff's
+  rule ordering, see `ranked_neighbors` — plain randomized order doesn't
+  scale much past 4x4), cut into `pair_count` contiguous segments (one per
+  number — full board coverage falls out of this by construction, but it's
+  purely an internal technique; the player never needs to reproduce it, see
+  `GameStatus::Won`). Cutting actively *searches* many candidate cut-point
+  configurations and keeps whichever maximizes the worst segment's own
+  endpoint spread (`cut_into_segments`/`score_cuts`) rather than accepting
+  the first structurally-valid one — a Warnsdorff-guided path is locally
+  coherent, so a single random cut often leaves a segment's two endpoints
+  folded back close together despite the segment having plenty of cells, and
+  only actively searching for a better cut (not just accepting/rejecting
+  one) reliably avoids that. A bounded backtracking solver
+  (connectivity-pruned, see `Solver::is_feasible`) *prefers* a layout
+  verified unique but falls back to whichever candidate scored best if none
+  turns up within budget (see the module's doc comment for why global
+  uniqueness isn't chased at all costs here). The module doc also records a
+  tried-and-abandoned attempt at vetoing "no genuine contention between
+  pairs" via bounding-box overlap — worth reading before trying the same
+  idea again, since it was measured to be nearly a no-op within this
+  architecture. Internal detail of `NumberlinkGame::random`; keep it that way
+  unless there's a concrete need for lower-level access.
 - `src/widget.rs` — `NumberlinkWidget`, `DEFAULT_COLORS`, `content_size`, and
   all painting/input handling. This is the only file allowed to depend on
   `egui::Ui`/`Painter`.
@@ -85,15 +104,17 @@ cargo clippy --target wasm32-unknown-unknown --example webapp -- -D warnings
   its original starting cell, see `NumberlinkGame::start_drag`'s doc
   comment).
 - `NumberlinkGame::random`'s generated puzzles must always have *at least
-  one* full-board solution by construction, and prefer (without insisting
-  on, see `generator.rs`'s module docs) one verified unique — the win
-  condition (`check_win` in `game.rs`) checks both "every pair connected" and
-  "every cell filled" together, and that's intentional: dropping either half
-  would make some generated puzzles winnable by a proper subset of cells,
-  which isn't the intended solution regardless of whether it was the only
-  one.
-- `NumberlinkGame::from_endpoints` (curated puzzles) has no such solvability
-  guarantee — that's documented as being on the caller.
+  one* solution by construction (a full-board-coverage tiling, internally —
+  see `generator.rs`'s module docs), and prefer (without insisting on) one
+  verified unique. The win condition (`check_win` in `game.rs`) only checks
+  "every pair connected" — filling the rest of the board was never required,
+  matching the classic Numberlink rules rather than Flow Free's convention.
+  Blocked cells (`is_blocked`) remain a real routing obstacle regardless —
+  a path may never enter one — they just aren't also required to be used by
+  someone.
+- `NumberlinkGame::from_endpoints`/`from_endpoints_with_blocked` (curated
+  puzzles) have no such solvability guarantee — that's documented as being
+  on the caller.
 - Add unit tests in `src/game.rs` for player-facing behavior (drag/retract/
   reject, win detection, undo/redo) and in `src/generator.rs` for generation
   properties (shape of the output, verified uniqueness). The widget/painting

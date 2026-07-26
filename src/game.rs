@@ -7,10 +7,14 @@ use crate::generator;
 pub enum GameStatus {
     /// The puzzle is not yet solved.
     Playing,
-    /// Every number's two endpoints are connected and every cell on the
-    /// board is filled. Numberlink puzzles built via [`NumberlinkGame::random`]
-    /// have a verified-unique solution, so this is *the* solution; puzzles
-    /// built via [`NumberlinkGame::from_endpoints`] have no such guarantee.
+    /// Every number's two endpoints are connected by a drawn path. Cells no
+    /// path ends up using don't matter — filling the whole board was never
+    /// required, only connecting each pair (blocked cells remain real
+    /// obstacles no path may enter, they just aren't also required to be
+    /// used by someone). Puzzles built via [`NumberlinkGame::random`] are
+    /// generated with a best-effort (not provable) uniqueness check, so this
+    /// is *usually* the solution, not guaranteed to be; puzzles built via
+    /// [`NumberlinkGame::from_endpoints`] have no such guarantee at all.
     Won,
 }
 
@@ -25,6 +29,8 @@ pub struct NumberlinkGame {
     /// Board height in cells.
     pub height: usize,
     endpoints: Vec<((usize, usize), (usize, usize))>,
+    /// Flat `width * height` grid: `true` for a cell no path may ever enter.
+    blocked: Vec<bool>,
     /// `paths[n]` is the ordered sequence of cells the player has drawn for
     /// number `n` so far, always starting at one of `endpoints[n]`. Empty
     /// until the player starts drawing that number.
@@ -45,11 +51,12 @@ pub struct NumberlinkGame {
 
 impl NumberlinkGame {
     /// Build a puzzle from explicit endpoint pairs (one per number, in
-    /// display order). Use this for curated puzzles.
+    /// display order) with no blocked cells. Use this for curated puzzles.
+    /// See [`Self::from_endpoints_with_blocked`] to also specify walls.
     ///
-    /// Unlike [`Self::random`], there is no guarantee a full-board,
-    /// non-crossing solution exists for arbitrary endpoints — that's on the
-    /// caller to ensure if a definite win is wanted.
+    /// Unlike [`Self::random`], there is no guarantee any non-crossing
+    /// solution exists for arbitrary endpoints — that's on the caller to
+    /// ensure if a definite win is wanted.
     ///
     /// # Panics
     ///
@@ -61,6 +68,28 @@ impl NumberlinkGame {
         height: usize,
         endpoints: Vec<((usize, usize), (usize, usize))>,
     ) -> Self {
+        Self::from_endpoints_with_blocked(width, height, endpoints, Vec::new())
+    }
+
+    /// Build a puzzle from explicit endpoint pairs (one per number, in
+    /// display order) plus a set of blocked cells no path may ever enter.
+    ///
+    /// Unlike [`Self::random`], there is no guarantee any non-crossing
+    /// solution exists for arbitrary endpoints — that's on the caller to
+    /// ensure if a definite win is wanted.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `width`/`height` is zero, any endpoint or blocked cell is
+    /// out of bounds, an endpoint pair repeats the same cell for both ends,
+    /// or any cell is used as an endpoint by more than one number or is both
+    /// an endpoint and blocked.
+    pub fn from_endpoints_with_blocked(
+        width: usize,
+        height: usize,
+        endpoints: Vec<((usize, usize), (usize, usize))>,
+        blocked_cells: Vec<(usize, usize)>,
+    ) -> Self {
         assert!(width > 0 && height > 0, "board must have at least one cell");
         let mut seen = std::collections::HashSet::new();
         for &(a, b) in &endpoints {
@@ -70,11 +99,24 @@ impl NumberlinkGame {
             assert!(seen.insert(a), "cell {a:?} used as more than one endpoint");
             assert!(seen.insert(b), "cell {b:?} used as more than one endpoint");
         }
+        let mut blocked = vec![false; width * height];
+        for &c in &blocked_cells {
+            assert!(
+                c.0 < width && c.1 < height,
+                "blocked cell {c:?} out of bounds"
+            );
+            assert!(
+                !seen.contains(&c),
+                "cell {c:?} cannot be both an endpoint and blocked"
+            );
+            blocked[c.1 * width + c.0] = true;
+        }
         let pair_count = endpoints.len();
         Self {
             width,
             height,
             endpoints,
+            blocked,
             paths: vec![Vec::new(); pair_count],
             owner: vec![None; width * height],
             pending_undo: None,
@@ -85,18 +127,31 @@ impl NumberlinkGame {
     }
 
     /// Build a procedurally-generated puzzle with `pair_count` numbers on a
-    /// `width x height` board, reproducible via `seed`. The generator
-    /// verifies the puzzle has exactly one full-board, non-crossing
-    /// solution before returning it.
+    /// `width x height` board, reproducible via `seed`. No blocked cells
+    /// (winning only requires connecting each pair, not filling the whole
+    /// board — see [`GameStatus::Won`]). Internally, one Hamiltonian path
+    /// over the whole board is cut into `pair_count` contiguous segments,
+    /// chosen by actively searching many candidate cut points and keeping
+    /// whichever spreads every segment's own two endpoints apart the most
+    /// (relative to that segment's own length), so a number's two endpoints
+    /// don't just sit next to each other. The generator prefers a
+    /// verified-unique layout within a bounded search, falling back to the
+    /// best-scoring layout found (at least one solution, not necessarily
+    /// unique) if none is found in time — see [`crate::generator`].
     ///
     /// # Panics
     ///
     /// Panics if `width * height < pair_count * 2`, or in the practically
-    /// unreachable case that generation can't find a verified-unique layout
-    /// within its attempt budget (see [`crate::generator`]).
+    /// unreachable case that generation can't produce even a merely-valid
+    /// layout within its attempt budget (see [`crate::generator`]).
     pub fn random(width: usize, height: usize, pair_count: usize, seed: u64) -> Self {
         let endpoints = generator::generate(width, height, pair_count, seed);
         Self::from_endpoints(width, height, endpoints)
+    }
+
+    /// Whether `cell` is a permanent wall no path may ever enter.
+    pub fn is_blocked(&self, cell: (usize, usize)) -> bool {
+        self.blocked[self.idx(cell)]
     }
 
     /// Number of numbered pairs on the board.
@@ -183,6 +238,7 @@ impl NumberlinkGame {
     /// via [`Self::start_drag`]) towards `cell`:
     /// - Moving onto an empty, orthogonally-adjacent cell extends the path.
     /// - Moving onto the path's own second-to-last cell retracts it by one.
+    /// - Moving onto a blocked cell is rejected — no path may ever enter one.
     /// - Moving onto a node (drawn or not) belonging to a *different* number
     ///   is rejected — a path may never pass through another number's
     ///   endpoint, drawn or otherwise.
@@ -213,6 +269,9 @@ impl NumberlinkGame {
             return;
         }
         if !generator::is_adjacent(last, cell) {
+            return;
+        }
+        if self.is_blocked(cell) {
             return;
         }
         if let Some(owner) = self.owner_at(cell) {
@@ -326,8 +385,7 @@ impl NumberlinkGame {
                 && matches!(path.last(), Some(&l) if l == a || l == b)
                 && path.first() != path.last()
         });
-        let all_filled = self.owner.iter().all(Option::is_some);
-        self.status = if all_connected && all_filled {
+        self.status = if all_connected {
             GameStatus::Won
         } else {
             GameStatus::Playing
@@ -356,6 +414,32 @@ mod tests {
         game.drag_to(1, (1, 1));
         game.end_drag(1);
         assert_eq!(game.status, GameStatus::Won);
+    }
+
+    #[test]
+    fn winning_only_requires_connecting_every_pair() {
+        // 4x1 board, one pair spanning the first two cells; (2, 0) is
+        // blocked and (3, 0) is a perfectly ordinary, non-blocked cell —
+        // neither needs to be filled to win. Filling the whole board was
+        // never required, only connecting each pair.
+        let mut game =
+            NumberlinkGame::from_endpoints_with_blocked(4, 1, vec![((0, 0), (1, 0))], vec![(2, 0)]);
+        game.start_drag(0, (0, 0));
+        game.drag_to(0, (1, 0));
+        game.end_drag(0);
+        assert_eq!(game.status, GameStatus::Won);
+        assert_eq!(game.owner_at((2, 0)), None);
+        assert_eq!(game.owner_at((3, 0)), None);
+    }
+
+    #[test]
+    fn dragging_onto_a_blocked_cell_is_rejected() {
+        let mut game =
+            NumberlinkGame::from_endpoints_with_blocked(3, 1, vec![((0, 0), (2, 0))], vec![(1, 0)]);
+        game.start_drag(0, (0, 0));
+        game.drag_to(0, (1, 0));
+        assert_eq!(game.path_cells(0), &[(0, 0)]);
+        assert_eq!(game.owner_at((1, 0)), None);
     }
 
     #[test]

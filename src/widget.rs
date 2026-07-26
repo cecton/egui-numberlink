@@ -218,11 +218,39 @@ impl Widget for NumberlinkWidget<'_> {
         let visuals = ui.visuals();
         let ppi = painter.ctx().pixels_per_point();
 
-        // Board background: plain bordered cells.
+        // Board background: plain bordered cells, except blocked cells
+        // (walls no path may ever enter), which get a darker fill plus a
+        // diagonal hatch so they read as an obstacle rather than empty
+        // space still waiting to be drawn on.
+        let wall_color = visuals.widgets.noninteractive.bg_stroke.color;
         for y in 0..height {
             for x in 0..width {
                 let rect = cell_rect(x, y).round_to_pixels(ppi);
-                painter.rect_filled(rect, 0.0, visuals.extreme_bg_color);
+                let blocked = game.is_blocked((x, y));
+                painter.rect_filled(
+                    rect,
+                    0.0,
+                    if blocked {
+                        visuals.widgets.noninteractive.bg_fill
+                    } else {
+                        visuals.extreme_bg_color
+                    },
+                );
+                if blocked {
+                    let hatch_stroke = Stroke::new(cell_size * 0.06, wall_color);
+                    let inset = cell_size * 0.18;
+                    painter.line_segment(
+                        [rect.min + Vec2::splat(inset), rect.max - Vec2::splat(inset)],
+                        hatch_stroke,
+                    );
+                    painter.line_segment(
+                        [
+                            Pos2::new(rect.min.x + inset, rect.max.y - inset),
+                            Pos2::new(rect.max.x - inset, rect.min.y + inset),
+                        ],
+                        hatch_stroke,
+                    );
+                }
                 painter.rect_stroke(
                     rect,
                     0.0,
