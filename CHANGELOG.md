@@ -7,6 +7,8 @@ Versioning](semver).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-26
+
 ### Changed
 
 - **Breaking:** `GameStatus::Won` no longer requires filling every non-blocked cell — only connecting every pair. Filling the whole board was a Flow-Free-specific convention, not a Numberlink one; requiring it turned out to add no real difficulty once endpoints were well spread (see the next bullet), just mechanical clean-up after the puzzle was already effectively solved. Blocked cells remain a real routing obstacle (a path may never enter one), they just aren't also required to be used by someone
@@ -42,6 +44,7 @@ Versioning](semver).
 
 [keep_a_changelog]: https://keepachangelog.com/en/1.1.0
 [semver]: https://semver.org/spec/v2.0.0.html
-[Unreleased]: https://github.com/cecton/egui-numberlink/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/cecton/egui-numberlink/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/cecton/egui-numberlink/releases/tag/v0.2.0
 [0.1.1]: https://github.com/cecton/egui-numberlink/releases/tag/v0.1.1
 [0.1.0]: https://github.com/cecton/egui-numberlink/releases/tag/v0.1.0
