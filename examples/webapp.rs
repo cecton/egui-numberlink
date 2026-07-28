@@ -26,8 +26,8 @@ fn run() {
         fn label(self) -> &'static str {
             match self {
                 Self::Beginner => "Beginner (5x5, 4 pairs)",
-                Self::Intermediate => "Intermediate (7x7, 6 pairs)",
-                Self::Expert => "Expert (9x9, 8 pairs)",
+                Self::Intermediate => "Intermediate (7x7, 7 pairs)",
+                Self::Expert => "Expert (9x9, 9 pairs)",
             }
         }
 
@@ -39,8 +39,8 @@ fn run() {
         fn dims(self) -> (usize, usize, usize) {
             match self {
                 Self::Beginner => (5, 5, 4),
-                Self::Intermediate => (7, 7, 6),
-                Self::Expert => (9, 9, 8),
+                Self::Intermediate => (7, 7, 7),
+                Self::Expert => (9, 9, 9),
             }
         }
     }

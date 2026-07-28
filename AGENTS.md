@@ -8,9 +8,7 @@ Instructions for AI coding agents working in this repository.
 Numberlink puzzle game for [egui](https://github.com/emilk/egui):
 renderer-agnostic game logic plus a ready-to-use `egui::Widget`. It has no
 application of its own beyond the demo in `examples/webapp.rs` — it's meant
-to be pulled into other egui apps as a dependency (see
-`doneward/src/numberlink_window.rs` in the sibling `doneward` repo for a real
-embedding example).
+to be pulled into other egui apps as a dependency.
 
 Numberlink is the puzzle of connecting matching pairs of numbered endpoints
 on a grid with a path each, no two paths crossing — winning only requires
@@ -35,24 +33,53 @@ generic name, Numberlink.
   rule ordering, see `ranked_neighbors` — plain randomized order doesn't
   scale much past 4x4), cut into `pair_count` contiguous segments (one per
   number — full board coverage falls out of this by construction, but it's
-  purely an internal technique; the player never needs to reproduce it, see
-  `GameStatus::Won`). Cutting actively *searches* many candidate cut-point
-  configurations and keeps whichever maximizes the worst segment's own
-  endpoint spread (`cut_into_segments`/`score_cuts`) rather than accepting
-  the first structurally-valid one — a Warnsdorff-guided path is locally
-  coherent, so a single random cut often leaves a segment's two endpoints
-  folded back close together despite the segment having plenty of cells, and
-  only actively searching for a better cut (not just accepting/rejecting
-  one) reliably avoids that. A bounded backtracking solver
-  (connectivity-pruned, see `Solver::is_feasible`) *prefers* a layout
-  verified unique but falls back to whichever candidate scored best if none
-  turns up within budget (see the module's doc comment for why global
-  uniqueness isn't chased at all costs here). The module doc also records a
-  tried-and-abandoned attempt at vetoing "no genuine contention between
-  pairs" via bounding-box overlap — worth reading before trying the same
-  idea again, since it was measured to be nearly a no-op within this
-  architecture. Internal detail of `NumberlinkGame::random`; keep it that way
-  unless there's a concrete need for lower-level access.
+  purely an internal construction technique; the player never needs to
+  reproduce it, see `GameStatus::Won`). Cutting actively *searches* many
+  candidate cut-point configurations and keeps whichever `score_cuts` ranks
+  best — both maximizing the worst segment's own endpoint spread *and*
+  requiring genuine, *widespread* contention, via two stacked checks:
+  `has_forced_contention` (a real, but heavily restricted and therefore
+  cheap, solver search: can every pair's own independent shortest route be
+  assigned simultaneously without any of them crossing? if so, the puzzle
+  needs no rerouting reasoning at all, veto it) confirms *some* conflict
+  exists anywhere, and `pairwise_conflicts` additionally requires that
+  conflict to involve *every* number — `has_forced_contention` alone was
+  satisfied just as well by one small, isolated conflict between two numbers
+  while the rest of the board stayed trivially solvable by inspection, which
+  still played as "easy" despite technically passing. `has_forced_contention`
+  replaced full-board-tiling uniqueness (still what `Solver::new`'s default
+  checks, used only by a few tests now) as the real difficulty gate: that
+  older check turned out to have ~zero relationship to real difficulty once
+  the win condition stopped requiring full coverage, *and* was too expensive
+  to run broadly at 7x7/9x9 — motivating (and then eventually making
+  unnecessary) an offline-harvested puzzle bank that has since been deleted,
+  since the contention checks turned out both common and cheap enough to run
+  on every candidate live, at every board size including 9x9. The module doc
+  also records two earlier, cheaper geometric proxies for contention
+  (bounding-box overlap, cell-proximity) that were tried and measured to be
+  near-no-ops before landing on the real, direct check — worth reading
+  before reaching for a cheap approximation over an accurately restricted
+  real search. Even the current pair, note, only measure *coverage* (how
+  many numbers are forced into some conflict), not *severity* (how much
+  detour each conflict actually costs) — a real, separate axis nothing here
+  measures yet. `score_cuts` also vetoes a pair whose *both* endpoints sit on
+  the board's outer border (`is_periphery`) — such a pair is always
+  trivially joinable by just walking the border, no interior reasoning
+  needed, regardless of contention elsewhere; one endpoint on the border is
+  fine, only both is rejected. This one is real but not free: it measurably
+  raised `generate`'s average latency (roughly 4-12x across presets, still
+  well under a second worst case on an unoptimized dev build) since some
+  Hamiltonian paths admit no valid cut at all under the added constraint,
+  forcing a full-path retry — raising `CUT_ATTEMPTS` doesn't help (measured),
+  since the bottleneck is which *paths* work, not how many cuts are tried
+  per path. See the module doc for the exact numbers. A separate, persistent
+  (not throwaway) `difficulty_survey`
+  test module at the bottom of the file — every test in it `#[ignore]`d — is
+  an opt-in offline harness for spending much larger amounts of compute than
+  the live generator can afford to measure real puzzle difficulty/contention;
+  see its own doc comment for how to run it at a much larger sample size.
+  Internal detail of `NumberlinkGame::random`; keep it that way unless
+  there's a concrete need for lower-level access.
 - `src/widget.rs` — `NumberlinkWidget`, `DEFAULT_COLORS`, `content_size`, and
   all painting/input handling. This is the only file allowed to depend on
   `egui::Ui`/`Painter`.
@@ -106,11 +133,14 @@ cargo clippy --target wasm32-unknown-unknown --example webapp -- -D warnings
 - `NumberlinkGame::random`'s generated puzzles must always have *at least
   one* solution by construction (a full-board-coverage tiling, internally —
   see `generator.rs`'s module docs), and prefer (without insisting on) one
-  verified unique. The win condition (`check_win` in `game.rs`) only checks
-  "every pair connected" — filling the rest of the board was never required,
-  matching the classic Numberlink rules rather than Flow Free's convention.
-  Blocked cells (`is_blocked`) remain a real routing obstacle regardless —
-  a path may never enter one — they just aren't also required to be used by
+  confirmed to genuinely and widely require rerouting (`has_forced_contention`
+  plus `pairwise_conflicts`, not full-board-tiling uniqueness — see
+  `generator.rs`'s module docs for why). The win condition (`check_win` in
+  `game.rs`) only checks "every pair
+  connected" — filling the rest of the board was never required, matching
+  the classic Numberlink rules rather than Flow Free's convention. Blocked
+  cells (`is_blocked`) remain a real routing obstacle regardless — a path
+  may never enter one — they just aren't also required to be used by
   someone.
 - `NumberlinkGame::from_endpoints`/`from_endpoints_with_blocked` (curated
   puzzles) have no such solvability guarantee — that's documented as being

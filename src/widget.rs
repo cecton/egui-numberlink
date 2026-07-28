@@ -6,8 +6,10 @@ use egui::{
 
 use crate::game::{GameStatus, NumberlinkGame};
 
-/// A colorblind-safe default palette (Okabe-Ito), cycled if the puzzle has
-/// more pairs than colors. Overridden entirely via [`NumberlinkWidget::colors`].
+/// A colorblind-safe default palette (the 8-color Okabe-Ito set, plus a 9th
+/// purple so a 9-pair board — e.g. the web demo's Expert preset — doesn't
+/// wrap back onto an already-used color), cycled if the puzzle has more
+/// pairs than colors. Overridden entirely via [`NumberlinkWidget::colors`].
 pub const DEFAULT_COLORS: &[Color32] = &[
     Color32::from_rgb(0x00, 0x72, 0xB2), // blue
     Color32::from_rgb(0xE6, 0x9F, 0x00), // orange
@@ -17,6 +19,7 @@ pub const DEFAULT_COLORS: &[Color32] = &[
     Color32::from_rgb(0xF0, 0xE4, 0x42), // yellow
     Color32::from_rgb(0x56, 0xB4, 0xE9), // sky blue
     Color32::from_rgb(0x66, 0x66, 0x66), // grey
+    Color32::from_rgb(0x93, 0x70, 0xDB), // purple
 ];
 
 /// The total footprint [`NumberlinkWidget`] will occupy for `game` at a
@@ -331,5 +334,24 @@ impl Widget for NumberlinkWidget<'_> {
         }
 
         response
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_colors_are_all_pairwise_distinct() {
+        // Regression test: `color_for` indexes via `number % colors.len()`,
+        // so any duplicate entry silently collides two pairs' colors once
+        // the board has that many pairs -- as happened when the web demo's
+        // Expert preset moved to 9 pairs against what was then an 8-color
+        // palette, wrapping pair 9 (0-indexed 8) back onto pair 1's blue.
+        for (i, &a) in DEFAULT_COLORS.iter().enumerate() {
+            for &b in &DEFAULT_COLORS[i + 1..] {
+                assert_ne!(a, b, "DEFAULT_COLORS has a duplicate entry");
+            }
+        }
     }
 }
