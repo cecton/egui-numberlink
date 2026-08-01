@@ -8,6 +8,12 @@
 [![License](https://img.shields.io/crates/l/egui-numberlink.svg)](https://github.com/cecton/egui-numberlink#license)
 [![Changelog](https://img.shields.io/badge/changelog-Keep%20a%20Changelog%20v1.1.0-%23E05735)](CHANGELOG.md)
 [![Live demo](https://img.shields.io/badge/demo-live-brightgreen)](https://cecton.github.io/egui-numberlink)
+[![Archived](https://img.shields.io/badge/status-archived-critical)](https://github.com/cecton/egui-numberlink)
+
+> **Archived.** This project is no longer maintained. The crate remains
+> functional, but the procedural generator never produced genuinely difficult
+> puzzles despite extensive effort — they all play too easy. Use or fork at
+> your own risk.
 
 A self-contained Numberlink puzzle game library for [egui](https://github.com/emilk/egui).
 

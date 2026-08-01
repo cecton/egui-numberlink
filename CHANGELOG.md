@@ -5,9 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](keep_a_changelog) and this project adheres to [Semantic
 Versioning](semver).
 
-## [Unreleased]
+## [0.2.1] - 2026-08-01
 
 ### Changed
+
+- **Project archived.** This is the final release: the project is no longer
+  maintained (see the README's archived notice). The procedural generator
+  never produced genuinely difficult puzzles despite extensive effort — they
+  all play too easy
+- `NumberlinkGame::random`'s generator now selects for genuine difficulty: a candidate cut is only kept if the pairs' own independent shortest routes *can't* all be assigned simultaneously without crossing (`has_forced_contention`), forcing a player to actually notice and reroute around another pair to solve it, rather than just drawing each pair's shortest path in isolation. This replaces an internal, uniqueness-of-the-full-board-tiling check that turned out to have essentially no relationship to real difficulty once the win condition stopped requiring full coverage — a puzzle could be a *unique* full tiling while still being trivially solvable, since the player was never required to fill the board at all. The new check is both common (found in 20-67% of random candidates, depending on board size) and cheap enough to check on every candidate at generation time, at every board size including 9x9 — unlike the old check, which had become so expensive at 7x7/9x9 that an offline-precomputed puzzle bank existed for those sizes at one point during development; that bank is gone now that live generation handles every size directly
 
 - `NumberlinkGame::random`'s generator now selects for genuine difficulty: a candidate cut is only kept if the pairs' own independent shortest routes *can't* all be assigned simultaneously without crossing (`has_forced_contention`), forcing a player to actually notice and reroute around another pair to solve it, rather than just drawing each pair's shortest path in isolation. This replaces an internal, uniqueness-of-the-full-board-tiling check that turned out to have essentially no relationship to real difficulty once the win condition stopped requiring full coverage — a puzzle could be a *unique* full tiling while still being trivially solvable, since the player was never required to fill the board at all. The new check is both common (found in 20-67% of random candidates, depending on board size) and cheap enough to check on every candidate at generation time, at every board size including 9x9 — unlike the old check, which had become so expensive at 7x7/9x9 that an offline-precomputed puzzle bank existed for those sizes at one point during development; that bank is gone now that live generation handles every size directly
 - Added an opt-in, offline difficulty-survey test harness (`difficulty_survey` in `src/generator.rs`, every test `#[ignore]`d) for measuring real puzzle difficulty/contention at a much larger sample size than the live generator can afford — not run by `cargo test`/CI by default
@@ -54,7 +60,8 @@ Versioning](semver).
 
 [keep_a_changelog]: https://keepachangelog.com/en/1.1.0
 [semver]: https://semver.org/spec/v2.0.0.html
-[Unreleased]: https://github.com/cecton/egui-numberlink/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/cecton/egui-numberlink/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/cecton/egui-numberlink/releases/tag/v0.2.1
 [0.2.0]: https://github.com/cecton/egui-numberlink/releases/tag/v0.2.0
 [0.1.1]: https://github.com/cecton/egui-numberlink/releases/tag/v0.1.1
 [0.1.0]: https://github.com/cecton/egui-numberlink/releases/tag/v0.1.0
